@@ -62,6 +62,7 @@ async def analyze_homework_photo(
         model=_VISION_MODEL,
         temperature=0.2,
         response_format={"type": "json_object"},
+        timeout=120.0,
     )
 
     try:
