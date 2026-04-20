@@ -4,7 +4,7 @@ from __future__ import annotations
 import base64
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -17,12 +17,21 @@ from osmosis_homework.vision import analyze_homework_photo
 router = APIRouter()
 
 
+async def _attach_cards(db, goal_id, cards):
+    for card in cards:
+        existing = await db.get(GoalWord, {"goal_id": goal_id, "card_id": card.id})
+        if existing is None:
+            db.add(GoalWord(goal_id=goal_id, card_id=card.id, added_at=_utcnow()))
+
+
 @router.post("/analyze")
 async def analyze_homework(
     subject: str = Form(...),
     language: str = Form(...),
-    conversation_id: str = Form(...),
     photo: UploadFile = Form(...),
+    # Optional: attach vocab cards to an existing goal instead of creating a new one
+    goal_id: str | None = Form(default=None),
+    conversation_id: str | None = Form(default=None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -37,14 +46,21 @@ async def analyze_homework(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Vision analysis failed: {exc}") from exc
 
-    # Create two goals
-    vocab_goal = await goal_service.create_goal(
-        db=db,
-        user_id=user.id,
-        title=f"{subject} Homework – Vocabulary",
-        language=language,
-        media_type="homework",
-    )
+    # Vocab goal: reuse existing goal if provided, otherwise create one
+    if goal_id:
+        result = await db.execute(select(Goal).where(Goal.id == goal_id, Goal.user_id == user.id))
+        vocab_goal = result.scalar_one_or_none()
+        if vocab_goal is None:
+            raise HTTPException(status_code=404, detail="Goal not found")
+    else:
+        vocab_goal = await goal_service.create_goal(
+            db=db,
+            user_id=user.id,
+            title=f"{subject} Homework – Vocabulary",
+            language=language,
+            media_type="homework",
+        )
+
     grammar_goal = await goal_service.create_goal(
         db=db,
         user_id=user.id,
@@ -67,9 +83,7 @@ async def analyze_homework(
             source="homework",
         )
         vocab_cards.append(card)
-        existing = await db.get(GoalWord, {"goal_id": vocab_goal.id, "card_id": card.id})
-        if existing is None:
-            db.add(GoalWord(goal_id=vocab_goal.id, card_id=card.id, added_at=_utcnow()))
+    await _attach_cards(db, vocab_goal.id, vocab_cards)
 
     # Create grammar SRS cards and link to grammar goal
     grammar_cards = []
@@ -85,20 +99,14 @@ async def analyze_homework(
             source="homework",
         )
         grammar_cards.append(card)
-        existing = await db.get(GoalWord, {"goal_id": grammar_goal.id, "card_id": card.id})
-        if existing is None:
-            db.add(GoalWord(goal_id=grammar_goal.id, card_id=card.id, added_at=_utcnow()))
+    await _attach_cards(db, grammar_goal.id, grammar_cards)
 
-    # Set total_words on each goal
+    # Set total_words on both goals
     await db.execute(
-        update(Goal)
-        .where(Goal.id == vocab_goal.id)
-        .values(total_words=len(vocab_cards))
+        update(Goal).where(Goal.id == vocab_goal.id).values(total_words=len(vocab_cards))
     )
     await db.execute(
-        update(Goal)
-        .where(Goal.id == grammar_goal.id)
-        .values(total_words=len(grammar_cards))
+        update(Goal).where(Goal.id == grammar_goal.id).values(total_words=len(grammar_cards))
     )
     await db.commit()
 

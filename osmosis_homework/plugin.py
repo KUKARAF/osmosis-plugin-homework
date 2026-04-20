@@ -50,7 +50,13 @@ class HomeworkPlugin:
         return ["homework"]
 
     def get_goal_actions(self) -> list[dict]:
-        return []
+        return [
+            {
+                "media_types": ["homework"],
+                "id": "upload_homework_photo",
+                "label": "Upload Photo",
+            }
+        ]
 
     def get_prompts_dir(self) -> Path | None:
         return None
