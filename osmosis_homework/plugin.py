@@ -54,3 +54,6 @@ class HomeworkPlugin:
 
     def get_prompts_dir(self) -> Path | None:
         return None
+
+    async def on_startup(self, app) -> None:
+        pass
