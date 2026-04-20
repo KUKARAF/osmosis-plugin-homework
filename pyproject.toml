@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "osmosis-homework"
+version = "0.1.0"
+description = "Homework photo analysis plugin for osmosis"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.entry-points."osmosis.plugins"]
+homework = "osmosis_homework.plugin:HomeworkPlugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["osmosis_homework"]
